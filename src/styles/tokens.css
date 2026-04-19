@@ -1,0 +1,21 @@
+:root {
+  --paper: oklch(0.975 0.005 85);
+  --panel: oklch(0.995 0.002 90);
+  --fg: oklch(0.22 0.01 80);
+  --fg-muted: oklch(0.5 0.008 80);
+  --fg-subtle: oklch(0.65 0.006 80);
+  --line: oklch(0.88 0.005 80);
+  --accent: oklch(0.58 0.14 35);
+
+  --tile-hover: oklch(0.93 0.012 75);
+  --tile-active: oklch(0.8 0.11 35);
+  --tile-active-hover: oklch(0.77 0.12 35);
+  --grid-dot: oklch(0.84 0.005 80);
+  --scrollbar-thumb: oklch(0.85 0.005 80);
+  --scrollbar-thumb-hover: oklch(0.72 0.008 80);
+  --kbd-bg: oklch(0.93 0.005 80);
+
+  --font-ui: 'Inter Tight', system-ui, sans-serif;
+  --font-sketch: 'Kalam', cursive;
+  --font-mono: 'JetBrains Mono', monospace;
+}

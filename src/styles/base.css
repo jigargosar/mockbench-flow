@@ -1,0 +1,188 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--paper);
+  font-family: var(--font-ui);
+  color: var(--fg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.canvas-bg {
+  position: fixed;
+  inset: 0;
+  background-image: radial-gradient(circle at 1px 1px, var(--grid-dot) 1px, transparent 0);
+  background-size: 20px 20px;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.palette {
+  position: fixed;
+  left: 16px;
+  top: 16px;
+  bottom: 16px;
+  width: 108px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow:
+    0 1px 2px rgba(30, 24, 18, 0.04),
+    0 12px 30px -14px rgba(30, 24, 18, 0.14);
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+  overflow: hidden;
+}
+
+.palette-list {
+  flex: 1;
+  overflow-y: scroll;
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.palette-list::-webkit-scrollbar {
+  width: 10px;
+}
+.palette-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.palette-list::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 6px;
+  border: 2px solid var(--panel);
+}
+.palette-list::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+.tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 6px;
+  border-radius: 10px;
+  cursor: pointer;
+  position: relative;
+  background: transparent;
+  border: 0;
+  width: 100%;
+  transition: background-color 80ms linear;
+  font: inherit;
+  color: inherit;
+}
+.tile:hover {
+  background: var(--tile-hover);
+}
+.tile.is-active {
+  background: var(--tile-active);
+}
+.tile.is-active:hover {
+  background: var(--tile-active-hover);
+}
+
+.tile-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 44px;
+  pointer-events: none;
+}
+.tile-preview svg {
+  display: block;
+  overflow: visible;
+}
+
+.canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+}
+.canvas.is-stamping {
+  cursor: crosshair;
+}
+
+.stamped {
+  position: absolute;
+  pointer-events: none;
+}
+
+.ghost {
+  position: absolute;
+  pointer-events: none;
+  opacity: 0.45;
+}
+.ghost.ghost-fixed {
+  position: fixed;
+  z-index: 50;
+}
+
+.widget-text {
+  font-family: var(--font-sketch);
+  color: var(--fg);
+}
+
+.status {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-muted);
+  letter-spacing: 0.05em;
+  z-index: 20;
+  box-shadow:
+    0 1px 2px rgba(30, 24, 18, 0.04),
+    0 8px 20px -12px rgba(30, 24, 18, 0.14);
+  user-select: none;
+  pointer-events: none;
+}
+.status b {
+  color: var(--fg);
+  font-weight: 600;
+}
+.status kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  background: var(--kbd-bg);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-muted);
+}
+
+/* React Flow overrides — Phase 1 locked chrome */
+.react-flow {
+  background: transparent;
+}
+.react-flow__pane {
+  cursor: default;
+}
+.react-flow__node {
+  cursor: default;
+}
+.react-flow__attribution {
+  display: none;
+}
