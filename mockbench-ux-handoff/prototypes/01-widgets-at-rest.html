@@ -1,0 +1,276 @@
+<!doctype html>
+<!--
+  Mockbench Phase 1 · Prototype 01 · Widgets at rest
+
+  Purpose:
+    Establish the sketched visual vocabulary. Three widgets rendered side-by-side
+    at their canvas sizes, no interaction. This is the baseline for what a
+    "widget" looks like on the Mockbench canvas.
+
+  Locked decisions visible here:
+    - 1px uniform stroke width everywhere (PRINCIPLES §3).
+    - rough.js 4.6.6 with seed-per-instance so repeated widgets don't look
+      copy-pasted.
+    - Kalam 400 for text inside sketched widgets. 700 reads as shouty.
+    - Paper grid background (20px dot pattern) = the canvas surface.
+    - Widgets have borders. Content inside is either real (Button label) or
+      minimal identifying placeholder (Header's X-in-box + pipe items,
+      Browser's traffic-lights + URL bar). No fake ipsum, no decorative fill.
+
+  Open / deferred:
+    - Widget set beyond Button/Header/Browser.
+    - Interactive behavior (see prototypes 02 and 03).
+    - Text-edit affordance (double-click → pipe editor) — planned, unscoped.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mockbench · Widget iteration</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=Kalam:wght@300;400;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/roughjs@4.6.6/bundled/rough.js"></script>
+<style>
+  :root {
+    --bg: oklch(0.985 0.003 90);
+    --paper: oklch(0.975 0.005 85);
+    --panel: oklch(1 0 0);
+    --fg: oklch(0.22 0.01 80);
+    --fg-muted: oklch(0.5 0.008 80);
+    --fg-subtle: oklch(0.62 0.006 80);
+    --line: oklch(0.91 0.005 80);
+    --accent: oklch(0.58 0.14 35);
+    --ink: oklch(0.22 0.01 80);
+    --font-ui: 'Inter Tight', system-ui, sans-serif;
+    --font-sketch: 'Kalam', cursive;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; min-height: 100%; background: var(--bg); font-family: var(--font-ui); color: var(--fg); }
+
+  .page { max-width: 1100px; margin: 0 auto; padding: 56px 48px 80px; }
+  .page-head { margin-bottom: 40px; }
+  .page-eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--fg-subtle); }
+  .page-title { font-size: 28px; font-weight: 600; margin: 6px 0 4px; letter-spacing: -0.01em; }
+  .page-sub { font-size: 14px; color: var(--fg-muted); max-width: 640px; line-height: 1.5; }
+
+  .specimen {
+    margin: 32px 0;
+    border-top: 1px solid var(--line);
+    padding-top: 28px;
+  }
+  .specimen-label {
+    display: flex; align-items: baseline; gap: 14px;
+    margin-bottom: 20px;
+  }
+  .specimen-name {
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--fg-subtle);
+  }
+  .specimen-note { font-size: 12px; color: var(--fg-subtle); font-style: italic; }
+
+  .specimen-stage {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 48px;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 180px;
+    background-image: radial-gradient(circle at 1px 1px, oklch(0.86 0.005 80) 1px, transparent 0);
+    background-size: 20px 20px;
+    background-position: -1px -1px;
+  }
+
+  .widget { position: relative; font-family: var(--font-sketch); color: var(--ink); }
+  .widget svg { display: block; overflow: visible; }
+  .overlay { position: absolute; inset: 0; pointer-events: none; font-family: var(--font-sketch); color: var(--ink); }
+  .center { display: flex; align-items: center; justify-content: center; }
+
+  .footer-note {
+    margin-top: 40px; padding-top: 24px; border-top: 1px solid var(--line);
+    font-size: 12px; color: var(--fg-subtle); font-family: var(--font-mono);
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useRef, useLayoutEffect, useMemo } = React;
+
+// Deterministic seed
+function hashSeed(str) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  return (h % 99999) + 1;
+}
+
+// Rough svg host
+function Rough({ w, h, seed, draw }) {
+  const ref = useRef(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    while (el.firstChild) el.removeChild(el.firstChild);
+    if (!window.rough) return;
+    const rc = window.rough.svg(el, { options: {
+      seed, roughness: 1.1, bowing: 1.2, strokeWidth: 1.4,
+      stroke: 'oklch(0.22 0.01 80)',
+    }});
+    const api = {
+      rectangle: (...a) => { const n = rc.rectangle(...a); el.appendChild(n); return n; },
+      line: (...a) => { const n = rc.line(...a); el.appendChild(n); return n; },
+      circle: (...a) => { const n = rc.circle(...a); el.appendChild(n); return n; },
+      ellipse: (...a) => { const n = rc.ellipse(...a); el.appendChild(n); return n; },
+      path: (...a) => { const n = rc.path(...a); el.appendChild(n); return n; },
+    };
+    draw(api);
+  }, [w, h, seed, draw]);
+  return <svg ref={ref} width={w} height={h} viewBox={`0 0 ${w} ${h}`} />;
+}
+
+// Shared sketch primitives
+const INK = 'oklch(0.22 0.01 80)';
+const INK_SOFT = 'oklch(0.45 0.008 80)';
+
+// ========== WIDGET: Button ==========
+function ButtonWidget() {
+  const w = 160, h = 52;
+  const seed = useMemo(() => hashSeed('btn:' + w + 'x' + h), []);
+  const draw = (rc) => {
+    rc.rectangle(2, 2, w - 4, h - 4, { roughness: 1.1, strokeWidth: 1.5 });
+  };
+  return (
+    <div className="widget" style={{ width: w, height: h }}>
+      <Rough w={w} h={h} seed={seed} draw={draw} />
+      <div className="overlay center" style={{ fontSize: 20, fontWeight: 700 }}>Button</div>
+    </div>
+  );
+}
+
+// ========== WIDGET: Navbar ==========
+function Navbar() {
+  const w = 720, h = 64;
+  const seed = useMemo(() => hashSeed('nav:' + w + 'x' + h), []);
+  const draw = (rc) => {
+    // outer frame
+    rc.rectangle(2, 2, w - 4, h - 4, { roughness: 1.1, strokeWidth: 1.5 });
+    // brand box (small square on left)
+    rc.rectangle(18, h/2 - 14, 28, 28, { roughness: 1, strokeWidth: 1.3 });
+    // inside: a tiny diagonal so it reads as a logo-placeholder
+    rc.line(20, h/2 - 12, 44, h/2 + 12, { roughness: 0.8, strokeWidth: 1 });
+    // nav items: each a small boxed rect with squiggly content
+    const items = 4;
+    const startX = w - 20;
+    const itemW = 90, itemGap = 10;
+    for (let i = items - 1; i >= 0; i--) {
+      const x = startX - (items - i) * (itemW + itemGap) + itemGap;
+      rc.rectangle(x, h/2 - 13, itemW, 26, { roughness: 1, strokeWidth: 1.2 });
+      // squiggly label
+      const y = h/2;
+      rc.path(`M ${x + 10} ${y} q 6 -3 12 0 t 12 0 t 12 0 t 12 0 t 12 0`, { roughness: 1, strokeWidth: 1.1, stroke: INK_SOFT });
+    }
+    // brand name squiggle next to logo
+    const by = h/2;
+    rc.path(`M 56 ${by} q 6 -3 12 0 t 12 0 t 12 0 t 12 0`, { roughness: 1, strokeWidth: 1.1, stroke: INK_SOFT });
+  };
+  return (
+    <div className="widget" style={{ width: w, height: h }}>
+      <Rough w={w} h={h} seed={seed} draw={draw} />
+    </div>
+  );
+}
+
+// ========== WIDGET: Browser chrome ==========
+function BrowserChrome() {
+  const w = 760, h = 420;
+  const seed = useMemo(() => hashSeed('bw:' + w + 'x' + h), []);
+  const draw = (rc) => {
+    // outer window
+    rc.rectangle(2, 2, w - 4, h - 4, { roughness: 1.1, strokeWidth: 1.6 });
+    // title bar divider
+    rc.line(2, 44, w - 2, 44, { roughness: 1, strokeWidth: 1.3 });
+    // traffic lights: three small circles
+    rc.circle(20, 22, 14, { roughness: 1, strokeWidth: 1.2 });
+    rc.circle(40, 22, 14, { roughness: 1, strokeWidth: 1.2 });
+    rc.circle(60, 22, 14, { roughness: 1, strokeWidth: 1.2 });
+    // url bar: rounded rect in center
+    const urlX = 110, urlW = w - 220, urlY = 12, urlH = 22;
+    rc.rectangle(urlX, urlY, urlW, urlH, { roughness: 1, strokeWidth: 1.2 });
+    // squiggly "url"
+    rc.path(`M ${urlX + 12} ${urlY + urlH/2} q 6 -3 12 0 t 12 0 t 12 0 t 12 0 t 12 0 t 12 0`, { roughness: 1, strokeWidth: 1, stroke: INK_SOFT });
+    // nav arrows left of url bar
+    rc.path(`M 88 ${urlY + urlH/2} l -6 -5 m 6 5 l -6 5`, { roughness: 0.8, strokeWidth: 1.2 });
+    // refresh after url bar
+    rc.circle(urlX + urlW + 16, urlY + urlH/2, 12, { roughness: 1, strokeWidth: 1.1 });
+    // page content area — intentionally empty (wireframe principle: frame visible, content is user's)
+    // but add a light dashed indicator that this is the content area
+    rc.line(2, 44, 2, h - 2, { roughness: 0.6, strokeWidth: 1, stroke: 'transparent' });
+    // corner label "page"
+  };
+  return (
+    <div className="widget" style={{ width: w, height: h, position: 'relative' }}>
+      <Rough w={w} h={h} seed={seed} draw={draw} />
+      <div style={{
+        position: 'absolute', left: 16, top: 60,
+        fontFamily: 'var(--font-mono)', fontSize: 11,
+        color: 'var(--fg-subtle)', letterSpacing: '0.08em', textTransform: 'uppercase',
+      }}>page content</div>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <div className="page">
+      <div className="page-head">
+        <div className="page-eyebrow">Mockbench · widget iteration · round 1</div>
+        <h1 className="page-title">Widgets at rest</h1>
+        <p className="page-sub">
+          Three widgets rendered at medium size on a paper-grid canvas — same canvas the user draws on.
+          Principle under test: wireframe = wire + frame. Every widget has a visible border.
+          Content inside is either real text (when the widget's purpose is a text label)
+          or a sketched placeholder (squiggle, diagonal, small shape) — never decorative, never hachure fill.
+          No knobs. One opinion per widget.
+        </p>
+      </div>
+
+      <div className="specimen">
+        <div className="specimen-label">
+          <span className="specimen-name">Button</span>
+          <span className="specimen-note">Text inside a box. Label is the content.</span>
+        </div>
+        <div className="specimen-stage"><ButtonWidget /></div>
+      </div>
+
+      <div className="specimen">
+        <div className="specimen-label">
+          <span className="specimen-name">Navbar</span>
+          <span className="specimen-note">Box around everything. Logo as placeholder square. Each nav item a mini-box with squiggly label.</span>
+        </div>
+        <div className="specimen-stage"><Navbar /></div>
+      </div>
+
+      <div className="specimen">
+        <div className="specimen-label">
+          <span className="specimen-name">Browser chrome</span>
+          <span className="specimen-note">Window outline + title bar + traffic lights + URL bar. Content area deliberately empty — user fills it.</span>
+        </div>
+        <div className="specimen-stage"><BrowserChrome /></div>
+      </div>
+
+      <div className="footer-note">
+        round 1 — 3 widgets · no tweaks · say which reads right and which doesn't
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

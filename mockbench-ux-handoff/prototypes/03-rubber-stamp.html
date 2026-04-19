@@ -1,0 +1,498 @@
+<!doctype html>
+<!--
+  Mockbench Phase 1 · Prototype 03 · Rubber stamp (full placement interaction)
+
+  Purpose:
+    The full Phase 1 deliverable. Palette + canvas + both placement paths
+    (click-to-stamp and drag-to-place), plus mode-switching and Esc-to-cancel.
+
+  Interaction contract (authoritative for this prototype):
+    - Click a tile → enter stamp mode. Tile turns terracotta.
+    - In stamp mode, a ghost of the widget (45% opacity) follows the cursor
+      over the canvas. Click canvas → widget placed, stays in mode.
+    - Click the SAME active tile again → exits mode.
+    - Click a DIFFERENT tile while in stamp mode → swaps the active widget,
+      stays in mode (PRINCIPLES §10 — mode over modality).
+    - mousedown on a tile + move past 5px = drag. Ghost follows anywhere on
+      screen. Release over canvas → placed. Release over palette → cancelled.
+      Drag does NOT enter stamp mode — one-shot placement.
+    - Esc exits stamp mode and cancels an in-progress drag.
+
+  Locked decisions visible here:
+    - Widget sizes: Button 96×30, Header 640×44, Browser 680×440. The ratios
+      are doctrine; the pixel values are tuning (PRINCIPLES §9).
+    - Browser inner content is deliberately empty. Containers receive other
+      widgets; we never pre-fill them with fake page content.
+    - Status pill at bottom reflects current mode. No other chrome on-canvas.
+    - Each placed widget instance gets a unique seed; re-stamping the same
+      widget produces visually distinct sketches.
+
+  Not implemented (deferred to later phases):
+    - Selection, move, resize, delete of placed widgets.
+    - Text editing (Balsamiq-style double-click → pipe editor).
+    - Undo / redo. Persistence. Zoom / pan.
+    - Additional widgets (image, text block, input, card, modal, footer).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mockbench · Palette r1</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=Kalam:wght@300;400;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/roughjs@4.6.6/bundled/rough.js"></script>
+<style>
+  :root {
+    --bg: oklch(0.985 0.003 90);
+    --paper: oklch(0.975 0.005 85);
+    --panel: oklch(0.995 0.002 90);
+    --fg: oklch(0.22 0.01 80);
+    --fg-muted: oklch(0.5 0.008 80);
+    --fg-subtle: oklch(0.65 0.006 80);
+    --line: oklch(0.88 0.005 80);
+    --accent: oklch(0.58 0.14 35);
+    --font-ui: 'Inter Tight', system-ui, sans-serif;
+    --font-sketch: 'Kalam', cursive;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--paper); font-family: var(--font-ui); color: var(--fg); overflow: hidden; }
+
+  /* Canvas behind (grid dots) */
+  .canvas-bg {
+    position: fixed; inset: 0;
+    background-image: radial-gradient(circle at 1px 1px, oklch(0.84 0.005 80) 1px, transparent 0);
+    background-size: 20px 20px;
+    z-index: 0;
+  }
+
+  /* The palette — floating, rounded, not flush */
+  .palette {
+    position: fixed;
+    left: 16px; top: 16px; bottom: 16px;
+    width: 108px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: 0 1px 2px rgba(30,24,18,0.04), 0 12px 30px -14px rgba(30,24,18,0.14);
+    display: flex; flex-direction: column;
+    z-index: 10; overflow: hidden;
+  }
+  .palette-head { display: none; }
+  .palette-body {
+    flex: 1;
+    display: flex; flex-direction: row;
+    min-height: 0;
+  }
+  .palette-list {
+    flex: 1;
+    overflow-y: scroll; /* always reserved — no layout shift */
+    padding: 8px 6px;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .palette-list::-webkit-scrollbar { width: 10px; }
+  .palette-list::-webkit-scrollbar-track { background: transparent; }
+  .palette-list::-webkit-scrollbar-thumb {
+    background: oklch(0.85 0.005 80);
+    border-radius: 6px;
+    border: 2px solid var(--panel);
+  }
+  .palette-list::-webkit-scrollbar-thumb:hover { background: oklch(0.72 0.008 80); }
+
+  /* Tile */
+  .tile {
+    display: flex; align-items: center; justify-content: center;
+    padding: 12px 6px;
+    border-radius: 10px;
+    cursor: pointer;
+    position: relative;
+    background: transparent;
+    border: 0;
+    width: 100%;
+    transition: background-color 80ms linear;
+  }
+  .tile:hover { background: oklch(0.93 0.012 75); }
+  .tile:active { background: oklch(0.88 0.02 40); }
+  .tile-preview {
+    display: flex; align-items: center; justify-content: center;
+    width: 72px; height: 44px; pointer-events: none;
+  }
+  .tile-preview svg { display: block; overflow: visible; }
+  .tile-label-REMOVED {
+    font-size: 10px; color: var(--fg-muted); font-family: var(--font-ui);
+    letter-spacing: 0.01em;
+  }
+  .tile:hover .tile-label { color: var(--fg); }
+
+  /* Active (stamp-selected) tile — persistent strong background */
+  .tile.is-active { background: oklch(0.8 0.11 35); }
+  .tile.is-active:hover { background: oklch(0.77 0.12 35); }
+
+  /* Canvas */
+  .canvas {
+    position: fixed; inset: 0;
+    z-index: 1;
+  }
+  .canvas.is-stamping { cursor: crosshair; }
+  .stamped {
+    position: absolute;
+    pointer-events: none;
+  }
+  .ghost {
+    position: absolute;
+    pointer-events: none;
+    opacity: 0.45;
+  }
+
+  /* Status line */
+  .status {
+    position: fixed;
+    bottom: 20px;
+    left: 50%; transform: translateX(-50%);
+    padding: 8px 14px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--fg-muted); letter-spacing: 0.05em;
+    z-index: 20;
+    box-shadow: 0 1px 2px rgba(30,24,18,0.04), 0 8px 20px -12px rgba(30,24,18,0.14);
+  }
+  .status b { color: var(--fg); font-weight: 600; }
+  .status kbd {
+    display: inline-block; padding: 1px 6px;
+    background: oklch(0.93 0.005 80); border-radius: 4px;
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--fg-muted);
+  }
+</style>
+</head>
+<body>
+<div class="canvas-bg"></div>
+<div id="app-root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useRef, useLayoutEffect, useMemo, useState, useEffect } = React;
+
+function hashSeed(s) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  return (h % 99999) + 1;
+}
+
+function Rough({ w, h, seed, draw, strokeWidth = 1.2 }) {
+  const ref = useRef(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    while (el.firstChild) el.removeChild(el.firstChild);
+    if (!window.rough) return;
+    const rc = window.rough.svg(el, { options: {
+      seed, roughness: 1.0, bowing: 1.1, strokeWidth,
+      stroke: 'oklch(0.22 0.01 80)',
+    }});
+    const api = {
+      rectangle: (...a) => { const n = rc.rectangle(...a); el.appendChild(n); return n; },
+      line: (...a) => { const n = rc.line(...a); el.appendChild(n); return n; },
+      circle: (...a) => { const n = rc.circle(...a); el.appendChild(n); return n; },
+      path: (...a) => { const n = rc.path(...a); el.appendChild(n); return n; },
+    };
+    draw(api);
+  }, [w, h, seed, draw, strokeWidth]);
+  return <svg ref={ref} width={w} height={h} viewBox={`0 0 ${w} ${h}`} />;
+}
+
+// ---- Tile renderings (small versions of the canvas widgets) ----
+function ButtonTile({ seedKey = 'btn-tile' }) {
+  const w = 64, h = 22;
+  const seed = useMemo(() => hashSeed(seedKey), [seedKey]);
+  const draw = (rc) => { rc.rectangle(1.5, 1.5, w - 3, h - 3, { strokeWidth: 1 }); };
+  return (
+    <div style={{ position: 'relative', width: w, height: h }}>
+      <Rough w={w} h={h} seed={seed} draw={draw} />
+      <div style={{
+        position: 'absolute', inset: 0, display: 'flex',
+        alignItems: 'center', justifyContent: 'center',
+        fontFamily: 'var(--font-sketch)', fontSize: 12, fontWeight: 400,
+      }}>Button</div>
+    </div>
+  );
+}
+
+function HeaderTile({ seedKey = 'header-tile' }) {
+  const w = 72, h = 18;
+  const seed = useMemo(() => hashSeed(seedKey), [seedKey]);
+  const draw = (rc) => {
+    rc.rectangle(1, 1, w - 2, h - 2, { strokeWidth: 1 });
+    // mini X-in-box logo
+    rc.rectangle(4, 4, 10, 10, { strokeWidth: 1 });
+    rc.line(4, 4, 14, 14, { strokeWidth: 1 });
+    rc.line(14, 4, 4, 14, { strokeWidth: 1 });
+    // menu item dashes
+    rc.line(w - 32, h/2, w - 26, h/2, { strokeWidth: 1 });
+    rc.line(w - 22, h/2, w - 16, h/2, { strokeWidth: 1 });
+    rc.line(w - 12, h/2, w - 6, h/2, { strokeWidth: 1 });
+  };
+  return <Rough w={w} h={h} seed={seed} draw={draw} />;
+}
+
+function BrowserTile({ seedKey = 'browser-tile' }) {
+  const w = 72, h = 44;
+  const seed = useMemo(() => hashSeed(seedKey), [seedKey]);
+  const draw = (rc) => {
+    rc.rectangle(1, 1, w - 2, h - 2, { strokeWidth: 1 });
+    rc.line(1, 11, w - 1, 11, { strokeWidth: 1 });
+    rc.circle(5, 6, 3, { strokeWidth: 1 });
+    rc.circle(11, 6, 3, { strokeWidth: 1 });
+    rc.circle(17, 6, 3, { strokeWidth: 1 });
+    rc.rectangle(24, 3.5, w - 30, 5, { strokeWidth: 1 });
+  };
+  return <Rough w={w} h={h} seed={seed} draw={draw} />;
+}
+
+const WIDGETS = [
+  { id: 'button',  Tile: ButtonTile },
+  { id: 'header',  Tile: HeaderTile },
+  { id: 'browser', Tile: BrowserTile },
+];
+
+// ---- Full-size canvas widgets (match Widgets r1 sizes) ----
+function ButtonFull({ seedKey }) {
+  const w = 96, h = 30;
+  const seed = useMemo(() => hashSeed(seedKey), [seedKey]);
+  const draw = (rc) => rc.rectangle(2, 2, w - 4, h - 4, { strokeWidth: 1 });
+  return (
+    <div style={{ position: 'relative', width: w, height: h }}>
+      <Rough w={w} h={h} seed={seed} draw={draw} />
+      <div style={{
+        position: 'absolute', inset: 0, display: 'flex',
+        alignItems: 'center', justifyContent: 'center',
+        fontFamily: 'var(--font-sketch)', fontSize: 14, fontWeight: 400,
+      }}>Button</div>
+    </div>
+  );
+}
+function HeaderFull({ seedKey }) {
+  const w = 640, h = 44;
+  const seed = useMemo(() => hashSeed(seedKey), [seedKey]);
+  const draw = (rc) => {
+    rc.rectangle(2, 2, w - 4, h - 4, { strokeWidth: 1 });
+    const lx = 10, ly = 10, lw = 24, lh = 24;
+    rc.rectangle(lx, ly, lw, lh, { strokeWidth: 1 });
+    rc.line(lx, ly, lx + lw, ly + lh, { strokeWidth: 1 });
+    rc.line(lx + lw, ly, lx, ly + lh, { strokeWidth: 1 });
+    for (let i = 0; i < 4; i++) {
+      const x = w - 24 - i * 66;
+      rc.line(x - 42, h/2, x, h/2, { strokeWidth: 1 });
+    }
+  };
+  return <Rough w={w} h={h} seed={seed} draw={draw} />;
+}
+function BrowserFull({ seedKey }) {
+  const w = 680, h = 440;
+  const seed = useMemo(() => hashSeed(seedKey), [seedKey]);
+  const draw = (rc) => {
+    rc.rectangle(2, 2, w - 4, h - 4, { strokeWidth: 1 });
+    rc.line(2, 32, w - 2, 32, { strokeWidth: 1 });
+    rc.circle(16, 16, 8, { strokeWidth: 1 });
+    rc.circle(34, 16, 8, { strokeWidth: 1 });
+    rc.circle(52, 16, 8, { strokeWidth: 1 });
+    rc.rectangle(72, 9, w - 92, 14, { strokeWidth: 1 });
+  };
+  return <Rough w={w} h={h} seed={seed} draw={draw} />;
+}
+
+const FULL = { button: ButtonFull, header: HeaderFull, browser: BrowserFull };
+const SIZE = {
+  button:  { w: 96,  h: 30 },
+  header:  { w: 640, h: 44 },
+  browser: { w: 680, h: 440 },
+};
+
+function Palette({ activeId, onPick, onDragStart }) {
+  const tiles = [];
+  for (let rep = 0; rep < 6; rep++) {
+    for (const w of WIDGETS) {
+      tiles.push({ id: `${w.id}-${rep}`, widgetId: w.id, Tile: w.Tile });
+    }
+  }
+  return (
+    <div className="palette">
+      <div className="palette-body">
+        <div className="palette-list">
+          {tiles.map(t => (
+            <button
+              key={t.id}
+              className={'tile' + (activeId === t.widgetId ? ' is-active' : '')}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onDragStart(t.widgetId, e, () => onPick(t.widgetId));
+              }}
+            >
+              <div className="tile-preview"><t.Tile seedKey={t.id} /></div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Canvas({ activeWidget, onStamp }) {
+  const [cursor, setCursor] = useState(null);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!activeWidget) { setCursor(null); return; }
+    const onMove = (e) => {
+      const r = ref.current.getBoundingClientRect();
+      setCursor({ x: e.clientX - r.left, y: e.clientY - r.top });
+    };
+    const onLeave = () => setCursor(null);
+    const el = ref.current;
+    el.addEventListener('mousemove', onMove);
+    el.addEventListener('mouseleave', onLeave);
+    return () => {
+      el.removeEventListener('mousemove', onMove);
+      el.removeEventListener('mouseleave', onLeave);
+    };
+  }, [activeWidget]);
+
+  const handleClick = (e) => {
+    if (!activeWidget) return;
+    const r = ref.current.getBoundingClientRect();
+    onStamp(e.clientX - r.left, e.clientY - r.top);
+  };
+
+  const GhostComp = activeWidget ? FULL[activeWidget] : null;
+  const size = activeWidget ? SIZE[activeWidget] : null;
+  const ghostKey = useMemo(() => 'ghost-' + Math.random(), [activeWidget]);
+
+  return (
+    <div
+      ref={ref}
+      className={'canvas' + (activeWidget ? ' is-stamping' : '')}
+      onClick={handleClick}
+    >
+      {activeWidget && cursor && GhostComp && (
+        <div className="ghost" style={{
+          left: cursor.x - size.w / 2,
+          top: cursor.y - size.h / 2,
+        }}>
+          <GhostComp seedKey={ghostKey} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function App() {
+  const [active, setActive] = useState(null);     // stamp-mode widget id, or null
+  const [drag, setDrag] = useState(null);         // { widgetId, x, y } during a drag
+  const [stamps, setStamps] = useState([]);
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') { setActive(null); setDrag(null); } };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const pick = (id) => setActive(cur => cur === id ? null : id);
+  const stamp = (x, y) => {
+    if (!active) return;
+    const size = SIZE[active];
+    const id = `${active}-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
+    setStamps(s => [...s, {
+      id, widgetId: active,
+      x: x - size.w / 2, y: y - size.h / 2,
+      seedKey: id,
+    }]);
+  };
+
+  // Unified mousedown handler: either a click (toggle stamp mode) or a drag (place where released).
+  const beginPotentialDrag = (widgetId, ev, onPlainClick) => {
+    const startX = ev.clientX, startY = ev.clientY;
+    const THRESH = 5;
+    let dragging = false;
+
+    const onMove = (e) => {
+      const dx = e.clientX - startX, dy = e.clientY - startY;
+      if (!dragging && Math.hypot(dx, dy) > THRESH) {
+        dragging = true;
+        // Starting a drag cancels any stamp mode for clarity
+        setActive(null);
+      }
+      if (dragging) {
+        setDrag({ widgetId, x: e.clientX, y: e.clientY });
+      }
+    };
+    const onUp = (e) => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      if (dragging) {
+        // Place at release point (don't place if over the palette itself)
+        const paletteEl = document.querySelector('.palette');
+        const overPalette = paletteEl && paletteEl.contains(document.elementFromPoint(e.clientX, e.clientY));
+        if (!overPalette) {
+          const size = SIZE[widgetId];
+          const id = `${widgetId}-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
+          setStamps(s => [...s, {
+            id, widgetId,
+            x: e.clientX - size.w / 2,
+            y: e.clientY - size.h / 2,
+            seedKey: id,
+          }]);
+        }
+        setDrag(null);
+      } else {
+        // Plain click — toggle stamp mode
+        onPlainClick && onPlainClick();
+      }
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  const DragGhost = drag ? FULL[drag.widgetId] : null;
+  const dragSize = drag ? SIZE[drag.widgetId] : null;
+  const dragGhostKey = useMemo(() => 'drag-ghost-' + Math.random(), [drag?.widgetId]);
+
+  return (
+    <>
+      <Canvas activeWidget={active} onStamp={stamp} />
+      {stamps.map(s => {
+        const Comp = FULL[s.widgetId];
+        return (
+          <div key={s.id} className="stamped" style={{ left: s.x, top: s.y }}>
+            <Comp seedKey={s.seedKey} />
+          </div>
+        );
+      })}
+      <Palette activeId={active} onPick={pick} onDragStart={beginPotentialDrag} />
+      {drag && DragGhost && (
+        <div className="ghost" style={{
+          position: 'fixed',
+          left: drag.x - dragSize.w / 2,
+          top: drag.y - dragSize.h / 2,
+          zIndex: 50,
+        }}>
+          <DragGhost seedKey={dragGhostKey} />
+        </div>
+      )}
+      <div className="status">
+        {active
+          ? <>stamping <b>{active}</b> · click canvas to place · <kbd>esc</kbd> to stop</>
+          : drag
+          ? <>dragging <b>{drag.widgetId}</b> · release on canvas to place</>
+          : <>click a widget to stamp · drag a widget to place precisely</>}
+      </div>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('app-root')).render(<App />);
+</script>
+</body>
+</html>

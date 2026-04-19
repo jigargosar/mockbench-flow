@@ -1,0 +1,245 @@
+<!doctype html>
+<!--
+  Mockbench Phase 1 · Prototype 02 · Palette
+
+  Purpose:
+    Establish the palette chrome, scrollbar, and tile behavior in isolation
+    (no canvas, no stamp mode). Validates the visual language of the widget
+    picker as a standalone concern.
+
+  Locked decisions visible here:
+    - Palette floats in a 16px inset from the viewport edge (not flush).
+      Rounded 14px corners, subtle shadow. Chrome present, not aggressive.
+    - Tiles have no label, no title, no border. Widget IS the label
+      (PRINCIPLES §4). Viewport is precious.
+    - Scrollbar is always reserved (overflow-y: scroll, not auto) so there's
+      no layout shift when content grows or shrinks (PRINCIPLES §8).
+    - Hover state: warm paper fill, no border, no motion, no shift. One CSS
+      property change, reads instantly as "this one" (PRINCIPLES §5).
+    - Widgets repeat enough times to exercise the scrollbar. Each instance
+      has a unique seed so repetitions look hand-drawn, not copy-pasted.
+
+  Open / deferred:
+    - "Active" (stamp-mode) tile state is defined in prototype 03.
+    - Drag-start affordance is implemented in prototype 03.
+    - Tooltip / widget-name surfacing — deliberately absent. Users will
+      shout about it if they want it.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mockbench · Palette r1</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=Kalam:wght@300;400;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/roughjs@4.6.6/bundled/rough.js"></script>
+<style>
+  :root {
+    --bg: oklch(0.985 0.003 90);
+    --paper: oklch(0.975 0.005 85);
+    --panel: oklch(0.995 0.002 90);
+    --fg: oklch(0.22 0.01 80);
+    --fg-muted: oklch(0.5 0.008 80);
+    --fg-subtle: oklch(0.65 0.006 80);
+    --line: oklch(0.88 0.005 80);
+    --accent: oklch(0.58 0.14 35);
+    --font-ui: 'Inter Tight', system-ui, sans-serif;
+    --font-sketch: 'Kalam', cursive;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--paper); font-family: var(--font-ui); color: var(--fg); overflow: hidden; }
+
+  /* Canvas behind (grid dots) */
+  .canvas-bg {
+    position: fixed; inset: 0;
+    background-image: radial-gradient(circle at 1px 1px, oklch(0.84 0.005 80) 1px, transparent 0);
+    background-size: 20px 20px;
+    z-index: 0;
+  }
+
+  /* The palette — floating, rounded, not flush */
+  .palette {
+    position: fixed;
+    left: 16px; top: 16px; bottom: 16px;
+    width: 108px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: 0 1px 2px rgba(30,24,18,0.04), 0 12px 30px -14px rgba(30,24,18,0.14);
+    display: flex; flex-direction: column;
+    z-index: 10; overflow: hidden;
+  }
+  .palette-head { display: none; }
+  .palette-body {
+    flex: 1;
+    display: flex; flex-direction: row;
+    min-height: 0;
+  }
+  .palette-list {
+    flex: 1;
+    overflow-y: scroll; /* always reserved — no layout shift */
+    padding: 8px 6px;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .palette-list::-webkit-scrollbar { width: 10px; }
+  .palette-list::-webkit-scrollbar-track { background: transparent; }
+  .palette-list::-webkit-scrollbar-thumb {
+    background: oklch(0.85 0.005 80);
+    border-radius: 6px;
+    border: 2px solid var(--panel);
+  }
+  .palette-list::-webkit-scrollbar-thumb:hover { background: oklch(0.72 0.008 80); }
+
+  /* Tile */
+  .tile {
+    display: flex; align-items: center; justify-content: center;
+    padding: 12px 6px;
+    border-radius: 10px;
+    cursor: pointer;
+    position: relative;
+    background: transparent;
+    border: 0;
+    width: 100%;
+    transition: background-color 80ms linear;
+  }
+  .tile:hover { background: oklch(0.93 0.012 75); }
+  .tile:active { background: oklch(0.88 0.02 40); }
+  .tile-preview {
+    display: flex; align-items: center; justify-content: center;
+    width: 72px; height: 44px; pointer-events: none;
+  }
+  .tile-preview svg { display: block; overflow: visible; }
+  .tile-label-REMOVED {
+    font-size: 10px; color: var(--fg-muted); font-family: var(--font-ui);
+    letter-spacing: 0.01em;
+  }
+  .tile:hover .tile-label { color: var(--fg); }
+
+  /* Canvas area hint (just so the panel has context) */
+  .canvas-hint {
+    position: fixed; inset: 16px 16px 16px 140px;
+    display: grid; place-items: center;
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--fg-subtle); letter-spacing: 0.1em; text-transform: uppercase;
+    z-index: 1;
+  }
+</style>
+</head>
+<body>
+<div class="canvas-bg"></div>
+<div class="canvas-hint">canvas</div>
+<div id="palette-root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useRef, useLayoutEffect, useMemo } = React;
+
+function hashSeed(s) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  return (h % 99999) + 1;
+}
+
+function Rough({ w, h, seed, draw, strokeWidth = 1.2 }) {
+  const ref = useRef(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    while (el.firstChild) el.removeChild(el.firstChild);
+    if (!window.rough) return;
+    const rc = window.rough.svg(el, { options: {
+      seed, roughness: 1.0, bowing: 1.1, strokeWidth,
+      stroke: 'oklch(0.22 0.01 80)',
+    }});
+    const api = {
+      rectangle: (...a) => { const n = rc.rectangle(...a); el.appendChild(n); return n; },
+      line: (...a) => { const n = rc.line(...a); el.appendChild(n); return n; },
+      circle: (...a) => { const n = rc.circle(...a); el.appendChild(n); return n; },
+      path: (...a) => { const n = rc.path(...a); el.appendChild(n); return n; },
+    };
+    draw(api);
+  }, [w, h, seed, draw, strokeWidth]);
+  return <svg ref={ref} width={w} height={h} viewBox={`0 0 ${w} ${h}`} />;
+}
+
+// ---- Tile renderings (small versions of the canvas widgets) ----
+function ButtonTile({ seedKey = 'btn-tile' }) {
+  const w = 64, h = 22;
+  const seed = useMemo(() => hashSeed(seedKey), [seedKey]);
+  const draw = (rc) => { rc.rectangle(1.5, 1.5, w - 3, h - 3, { strokeWidth: 1.1 }); };
+  return (
+    <div style={{ position: 'relative', width: w, height: h }}>
+      <Rough w={w} h={h} seed={seed} draw={draw} />
+      <div style={{
+        position: 'absolute', inset: 0, display: 'flex',
+        alignItems: 'center', justifyContent: 'center',
+        fontFamily: 'var(--font-sketch)', fontSize: 12, fontWeight: 700,
+      }}>Button</div>
+    </div>
+  );
+}
+
+function NavbarTile({ seedKey = 'nav-tile' }) {
+  const w = 72, h = 16;
+  const seed = useMemo(() => hashSeed(seedKey), [seedKey]);
+  const draw = (rc) => {
+    rc.rectangle(1, 1, w - 2, h - 2, { strokeWidth: 1 });
+    rc.rectangle(3, 4, 8, 8, { strokeWidth: 0.9 });
+    // 3 tiny item dashes on right
+    rc.line(w - 32, h/2, w - 26, h/2, { strokeWidth: 0.9 });
+    rc.line(w - 22, h/2, w - 16, h/2, { strokeWidth: 0.9 });
+    rc.line(w - 12, h/2, w - 6, h/2, { strokeWidth: 0.9 });
+  };
+  return <Rough w={w} h={h} seed={seed} draw={draw} />;
+}
+
+function BrowserTile({ seedKey = 'browser-tile' }) {
+  const w = 72, h = 44;
+  const seed = useMemo(() => hashSeed(seedKey), [seedKey]);
+  const draw = (rc) => {
+    rc.rectangle(1, 1, w - 2, h - 2, { strokeWidth: 1.1 });
+    rc.line(1, 11, w - 1, 11, { strokeWidth: 0.9 });
+    rc.circle(5, 6, 3, { strokeWidth: 0.8 });
+    rc.circle(11, 6, 3, { strokeWidth: 0.8 });
+    rc.circle(17, 6, 3, { strokeWidth: 0.8 });
+    // url bar
+    rc.rectangle(24, 3.5, w - 30, 5, { strokeWidth: 0.8 });
+  };
+  return <Rough w={w} h={h} seed={seed} draw={draw} />;
+}
+
+const WIDGETS = [
+  { id: 'button', label: 'button', Tile: ButtonTile },
+  { id: 'navbar', label: 'navbar', Tile: NavbarTile },
+  { id: 'browser', label: 'browser', Tile: BrowserTile },
+];
+
+function Palette() {
+  // repeat the 3 widgets enough times to force scrolling — each instance gets its own seed
+  const tiles = [];
+  for (let rep = 0; rep < 6; rep++) {
+    for (const w of WIDGETS) {
+      tiles.push({ id: `${w.id}-${rep}`, Tile: w.Tile });
+    }
+  }
+  return (
+    <div className="palette">
+      <div className="palette-head">widgets</div>
+      <div className="palette-body">
+        <div className="palette-list">
+          {tiles.map(t => (
+            <button key={t.id} className="tile" onMouseDown={(e) => e.preventDefault()}>
+              <div className="tile-preview"><t.Tile seedKey={t.id} /></div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('palette-root')).render(<Palette />);
+</script>
+</body>
+</html>
