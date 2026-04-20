@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>mockbench-flow — style spike</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/roughjs@4.6.6/bundled/rough.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  html, body { height: 100%; }
+  body { font-family: 'Kalam', ui-sans-serif, system-ui, sans-serif; }
+  .canvas-bg {
+    background-image: radial-gradient(circle, rgba(0,0,0,0.28) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+  .node { position: absolute; }
+  .node svg { display: block; overflow: visible; }
+  .node-label {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Kalam', cursive;
+    pointer-events: none;
+    padding: 8px 12px;
+    text-align: center;
+  }
+  .tile { overflow: hidden; }
+  .tile svg { display:block; overflow: hidden; }
+</style>
+</head>
+<body class="bg-gray-400">
+
+<div class="h-full p-4 flex gap-4">
+
+  <!-- Sidebar (lifted) -->
+  <aside class="w-28 shrink-0 bg-gray-200 rounded-xl shadow-md p-3 flex flex-col gap-3">
+    <div class="tile w-full aspect-square rounded-md bg-gray-100 shadow-xs border border-gray-300 flex items-center justify-center" data-tile="browser"></div>
+    <div class="tile w-full aspect-square rounded-md bg-gray-100 shadow-xs border border-gray-300 flex items-center justify-center" data-tile="button"></div>
+    <div class="tile w-full aspect-square rounded-md bg-gray-100 shadow-xs border border-gray-300 flex items-center justify-center" data-tile="titlebar"></div>
+    <div class="tile w-full aspect-square rounded-md bg-gray-100 shadow-xs border border-gray-300 flex items-center justify-center" data-tile="image"></div>
+    <div class="tile w-full aspect-square rounded-md bg-gray-100 shadow-xs border border-gray-300 flex items-center justify-center" data-tile="paragraph"></div>
+  </aside>
+
+  <!-- Canvas (flat, not lifted) -->
+  <main class="flex-1 relative canvas-bg bg-gray-200 overflow-hidden">
+    <div id="nodes" class="absolute inset-0"></div>
+  </main>
+</div>
+
+<script>
+  const rc = (svg) => rough.svg(svg);
+  const base = { roughness: 0.9, bowing: 1, disableMultiStroke: true, stroke: '#4b5563', strokeWidth: 1.2, seed: 7 };
+  const mix = (o = {}) => ({ ...base, ...o });
+
+  function makeSvg(w, h) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    svg.setAttribute('width', w); svg.setAttribute('height', h);
+    return svg;
+  }
+
+  // Tile renderers — each widget takes full tile width, native aspect ratio preserved
+  // The tile SVG is the bounding box; height derived from component ratio.
+  const tileRatios = { browser: 1.4, button: 2.6, titlebar: 3.2, image: 1.6, paragraph: 1.2 };
+  const tileDraws = {
+    browser: (svg, W, H) => {
+      const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+      g.appendChild(rc(svg).rectangle(1, 1, W-2, H-2, { roughness: 0.9, stroke:'#4b5563', strokeWidth: 1.3, fill:'#ffffff', fillStyle:'solid' }));
+      const chromeH = H * 0.28;
+      g.appendChild(rc(svg).line(1, chromeH, W-1, chromeH, { roughness: 0.9, stroke:'#4b5563' }));
+      const cy = chromeH / 2, r = Math.min(3, chromeH/3);
+      g.appendChild(rc(svg).circle(W*0.14, cy, r, { roughness: 0.8, stroke:'#4b5563' }));
+      g.appendChild(rc(svg).circle(W*0.26, cy, r, { roughness: 0.8, stroke:'#4b5563' }));
+      g.appendChild(rc(svg).circle(W*0.38, cy, r, { roughness: 0.8, stroke:'#4b5563' }));
+      return g;
+    },
+    button: (svg, W, H) => {
+      const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+      g.appendChild(rc(svg).rectangle(1, 1, W-2, H-2, { roughness: 0.9, stroke:'#4b5563', strokeWidth: 1.3, fill:'#f9fafb', fillStyle:'solid' }));
+      const t = document.createElementNS('http://www.w3.org/2000/svg','text');
+      const fs = Math.min(Math.round(H*0.35), Math.round(W*0.22));
+      t.setAttribute('x', W/2); t.setAttribute('y', H/2 + fs*0.35);
+      t.setAttribute('text-anchor','middle');
+      t.setAttribute('font-family','Kalam');
+      t.setAttribute('font-size', fs);
+      t.setAttribute('fill','#4b5563');
+      t.textContent = 'Button';
+      g.appendChild(t);
+      return g;
+    },
+    paragraph: (svg, W, H) => {
+      const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+      const rows = 4;
+      const rowH = H / (rows + 1);
+      for (let r = 0; r < rows; r++) {
+        const y = rowH * (r + 1);
+        const startX = r === 0 ? W * 0.30 : W * 0.06;
+        const endX   = W * 0.94;
+        g.appendChild(rc(svg).line(startX, y, endX, y, { roughness: 1.6, bowing: 0.5, stroke:'#4b5563', strokeWidth: 1.1 }));
+      }
+      return g;
+    },
+    image: (svg, W, H) => {
+      const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+      g.appendChild(rc(svg).rectangle(1, 1, W-2, H-2, { roughness: 0.9, stroke:'#4b5563', strokeWidth: 1.3, fill:'#ffffff', fillStyle:'solid' }));
+      g.appendChild(rc(svg).line(1, 1, W-1, H-1, { roughness: 0.9, stroke:'#4b5563' }));
+      g.appendChild(rc(svg).line(W-1, 1, 1, H-1, { roughness: 0.9, stroke:'#4b5563' }));
+      return g;
+    },
+    titlebar: (svg, W, H) => {
+      const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+      g.appendChild(rc(svg).rectangle(1, 1, W-2, H-2, { roughness: 0.9, stroke:'#4b5563', strokeWidth: 1.3, fill:'#f9fafb', fillStyle:'solid' }));
+      const pad = H*0.2, lh = H - pad*2, lx = pad*1.5, ly = pad;
+      g.appendChild(rc(svg).rectangle(lx, ly, lh, lh, { roughness: 0.9, stroke:'#4b5563' }));
+      g.appendChild(rc(svg).line(lx, ly, lx+lh, ly+lh, { roughness: 0.9, stroke:'#4b5563' }));
+      g.appendChild(rc(svg).line(lx+lh, ly, lx, ly+lh, { roughness: 0.9, stroke:'#4b5563' }));
+      const labelY = H/2 + 1;
+      const lens = [W*0.10, W*0.14, W*0.12];
+      let rx = W - pad*1.2;
+      for (let i = lens.length - 1; i >= 0; i--) {
+        const len = lens[i];
+        g.appendChild(rc(svg).line(rx - len, labelY, rx, labelY, { roughness: 1.4, bowing: 0.4, stroke:'#4b5563', strokeWidth: 1.1 }));
+        rx = rx - len - W*0.04;
+      }
+      return g;
+    },
+  };
+
+  // Render sidebar tiles — fixed 64x64 SVG; widget takes full width, height from ratio, centered vertically
+  document.querySelectorAll('.tile').forEach(btn => {
+    const key = btn.dataset.tile;
+    const svg = makeSvg(64, 64);
+    const w = 64;
+    const h = w / tileRatios[key];
+    const yOffset = (64 - h) / 2;
+    const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+    g.setAttribute('transform', `translate(0 ${yOffset})`);
+    g.appendChild(tileDraws[key](svg, w, h));
+    svg.appendChild(g);
+    btn.appendChild(svg);
+  });
+
+  // Canvas nodes
+  const nodesRoot = document.getElementById('nodes');
+
+  function addNode({x, y, w, h, draw, label, labelStyle=''}) {
+    const wrap = document.createElement('div');
+    wrap.className = 'node';
+    wrap.style.cssText = `left:${x}px; top:${y}px; width:${w}px; height:${h}px;`;
+    const svg = makeSvg(w, h);
+    svg.appendChild(draw(svg));
+    wrap.appendChild(svg);
+    if (label) {
+      const l = document.createElement('div');
+      l.className = 'node-label';
+      l.style.cssText = labelStyle;
+      l.textContent = label;
+      wrap.appendChild(l);
+    }
+    nodesRoot.appendChild(wrap);
+  }
+
+  // Composite screen: browser with navbar + button inside — proportionally sized
+  const W = 600, H = 395;
+  addNode({
+    x: 30, y: 30, w: W, h: H,
+    draw: (svg) => {
+      const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+      g.appendChild(rc(svg).rectangle(2, 2, W-4, H-4, { roughness: 0.9, stroke:'#4b5563', strokeWidth: 1.6, fill:'#ffffff', fillStyle:'solid' }));
+      g.appendChild(rc(svg).line(2, 36, W-2, 36, { roughness: 0.9, stroke:'#4b5563' }));
+      g.appendChild(rc(svg).circle(18, 18, 9, { roughness: 0.9, stroke:'#4b5563' }));
+      g.appendChild(rc(svg).circle(34, 18, 9, { roughness: 0.9, stroke:'#4b5563' }));
+      g.appendChild(rc(svg).circle(50, 18, 9, { roughness: 0.9, stroke:'#4b5563' }));
+
+      const nbX = 12, nbY = 50, nbW = W - 24, nbH = 32;
+      g.appendChild(rc(svg).rectangle(nbX, nbY, nbW, nbH, { roughness: 0.9, stroke:'#4b5563', strokeWidth: 1.4, fill:'#f9fafb', fillStyle:'solid' }));
+      const lx = nbX + 8, ly = nbY + 6, lw = 20, lh = 20;
+      g.appendChild(rc(svg).rectangle(lx, ly, lw, lh, { roughness: 0.9, stroke:'#4b5563', strokeWidth: 1.4 }));
+      g.appendChild(rc(svg).line(lx, ly, lx+lw, ly+lh, { roughness: 0.9, stroke:'#4b5563' }));
+      g.appendChild(rc(svg).line(lx+lw, ly, lx, ly+lh, { roughness: 0.9, stroke:'#4b5563' }));
+      // nav labels — short rough horizontal lines (word placeholders)
+      {
+        const labelY = nbY + nbH/2 + 2;
+        const lens = [28, 36, 30, 40];
+        let rx = nbX + nbW - 12;
+        for (let i = lens.length - 1; i >= 0; i--) {
+          const len = lens[i];
+          const x2 = rx, x1 = rx - len;
+          g.appendChild(rc(svg).line(x1, labelY, x2, labelY, { roughness: 1.4, bowing: 0.4, stroke:'#4b5563', strokeWidth: 1.3 }));
+          rx = x1 - 14;
+        }
+      }
+
+      // paragraph in top-left of content area
+      {
+        const pX = 20, pY = 100, pW = 260, pH = 80;
+        const rows = 4;
+        const rowH = pH / (rows + 1);
+        for (let r = 0; r < rows; r++) {
+          const y = pY + rowH * (r + 1);
+          const startX = pX + (r === 0 ? pW * 0.30 : 0);
+          const endX   = pX + pW;
+          g.appendChild(rc(svg).line(startX, y, endX, y, { roughness: 1.6, bowing: 0.5, stroke:'#4b5563', strokeWidth: 1.1 }));
+        }
+      }
+
+      const bw = 102, bh = 32, bx = (W - bw) / 2, by = 240;
+      g.appendChild(rc(svg).rectangle(bx, by, bw, bh, { roughness: 0.9, stroke:'#4b5563', strokeWidth: 1.4, fill:'#f9fafb', fillStyle:'solid' }));
+      const t = document.createElementNS('http://www.w3.org/2000/svg','text');
+      t.setAttribute('x', bx + bw/2); t.setAttribute('y', by + bh/2 + 5);
+      t.setAttribute('text-anchor','middle');
+      t.setAttribute('font-family','Kalam');
+      t.setAttribute('font-size','14');
+      t.setAttribute('fill','#4b5563');
+      t.textContent = 'Button';
+      g.appendChild(t);
+      return g;
+    },
+  });
+</script>
+
+</body>
+</html>
